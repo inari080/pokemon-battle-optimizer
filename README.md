@@ -18,6 +18,7 @@ python parse_showdown_data.py   # 実データ(種族値・技)を data/cache/*.
 
 ```bash
 PYTHONPATH=. python3 demo.py
+PYTHONPATH=. python3 demo_real_meta.py   # 実際のチャンピオンズ環境データを使ったパーティ最適化
 PYTHONPATH=. python3 -m pytest tests/
 ```
 
@@ -30,11 +31,12 @@ data_sources/
   showdown_loader.py    実データ(種族値・技)のロード
   threat_builder.py      使用率リストからThreatを自動生成
   champions_data.py      ポケモンチャンピオンズ公開データ取得クライアント
-data/raw/              Pokemon Showdownの生データ(.ts、取得済み)
-data/cache/             パース済みJSON・外部データキャッシュ
+data/raw/              Pokemon Showdownの生データ(.ts、取得済み)・kotofurumiya/pokemon_data(日本語種族値、第7世代まで)
+data/cache/             パース済みJSON・チャンピオンズ上位構築データ(取得済み)
 tests/                 ユニットテスト
 parse_showdown_data.py 実データ変換スクリプト
 demo.py                実データでの一連の動作確認
+demo_real_meta.py      実際のチャンピオンズ環境データ(M-4シングル)を使ったパーティ最適化デモ
 ```
 
 ## データソース
@@ -51,17 +53,28 @@ garchomp = get_species("garchomp")       # 表示名 "Garchomp" でも可
 earthquake = get_move("earthquake")
 ```
 
-### ポケモンチャンピオンズの使用率・上位構築データ(クライアントのみ実装、取得は未実施)
+### ポケモンチャンピオンズの使用率・上位構築データ(取得済み・パイプライン実装済み)
 レギュレーションM-B(メガシンカ可、ダイマックス/テラスタル不可)の環境データ:
 
 - 上位構築データ(CSV/JSON): `champs.pokedb.tokyo/opendata/s{season}_{single|double}_ranked_teams.{csv|json}`
 - 技/特性の使用率API: `championsbattledata.com/api/pokemon/{showdown_id}?format=Singles`
 
-このコンテナ環境は上記2ドメインへの外部アクセスが制限されているため、
-`data_sources/champions_data.py` の実行(`fetch_ranked_teams()` 等)はネットワーク制限のない
-ローカル環境で行い、`data/cache/` に出力されたJSONを本プロジェクトに取り込む運用を想定している。
-取得後は `data_sources/threat_builder.build_threats_from_usage()` で
-`engine.team_builder.Threat` リストに変換できる。
+シーズンM-4(シングル、221チーム、2026-08-13時点)の上位構築データを取得済みで
+`data/cache/ranked_teams_s4_single.json` にキャッシュしてある。
+`data_sources/champions_data.py` の `summarize_usage()` で使用率上位を集計し、
+`data_sources/threat_builder.py` の `build_threats_from_champions_usage()` /
+`build_candidates_from_champions_usage()` で `engine.team_builder` の
+`Threat` / `PokemonBuild` に変換できる。
+
+上位構築データには技構成が含まれず種族値も持たないが、パーティ最適化のスコアリング
+(`team_builder.team_score()`)はタイプ情報のみで計算されるため、
+type1/type2から直接候補・脅威を組み立てる方式にしている
+(第8/9世代のポケモンも含め、上位構築データに載っていれば種族値ソースの世代カバー範囲に
+左右されずそのまま使える)。実際に動かす例は `demo_real_meta.py` を参照。
+
+新しいシーズンのデータが欲しい場合は、`fetch_ranked_teams(season, "single")` を
+ネットワーク制限のないローカル環境で実行し、`data/cache/` に出力されたJSONを
+このプロジェクトに配置すれば良い(ファイル名の命名規則が一致していればそのままキャッシュとして使われる)。
 
 ## 技選択エンジンの性能特性
 
